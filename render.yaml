@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: census-api
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn census_engine_enhanced:app --host 0.0.0.0 --port 10000"
+    autoDeploy: false
