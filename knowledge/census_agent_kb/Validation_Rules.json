@@ -1,0 +1,72 @@
+[
+  {
+    "field": "SSN",
+    "rule_type": "regex",
+    "param": "^\\d{9}$",
+    "severity": "error",
+    "message": "SSN must be exactly 9 digits (no dashes)."
+  },
+  {
+    "field": "DOB",
+    "rule_type": "date_max",
+    "param": "2025-10-11",
+    "severity": "error",
+    "message": "DOB cannot be in the future."
+  },
+  {
+    "field": "DOB",
+    "rule_type": "age_min",
+    "param": "0",
+    "severity": "error",
+    "message": "DOB must produce non-negative age."
+  },
+  {
+    "field": "State",
+    "rule_type": "in_set",
+    "param": "AL,AK,AZ,AR,CA,CO,CT,DE,FL,GA,HI,ID,IL,IN,IA,KS,KY,LA,ME,MD,MA,MI,MN,MS,MO,MT,NE,NV,NH,NJ,NM,NY,NC,ND,OH,OK,OR,PA,RI,SC,SD,TN,TX,UT,VT,VA,WA,WV,WI,WY",
+    "severity": "error",
+    "message": "State must be a 2-letter US code."
+  },
+  {
+    "field": "Zip",
+    "rule_type": "regex",
+    "param": "^\\d{5}(-?\\d{4})?$",
+    "severity": "warning",
+    "message": "ZIP should be 5 or 9 digits."
+  },
+  {
+    "field": "Email",
+    "rule_type": "regex",
+    "param": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+    "severity": "warning",
+    "message": "Email format appears invalid."
+  },
+  {
+    "field": "CoverageCode",
+    "rule_type": "in_ref",
+    "param": "Coverage_Codes.code",
+    "severity": "error",
+    "message": "Coverage code must be one of the standard codes."
+  },
+  {
+    "field": "CoverageTier",
+    "rule_type": "in_set",
+    "param": "EE,EE+SP,EE+CH,EE+CH2+,FAM",
+    "severity": "error",
+    "message": "Tier must be in the approved set."
+  },
+  {
+    "field": "EffectiveDate",
+    "rule_type": "date_format",
+    "param": "YYYY-MM-DD",
+    "severity": "error",
+    "message": "Effective date must be YYYY-MM-DD."
+  },
+  {
+    "field": "TerminationDate",
+    "rule_type": "date_format_or_blank",
+    "param": "YYYY-MM-DD",
+    "severity": "warning",
+    "message": "Termination date must be blank or YYYY-MM-DD."
+  }
+]

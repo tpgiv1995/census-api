@@ -1,0 +1,97 @@
+[
+  {
+    "canonical": "SSN",
+    "variant": "Social Security Number",
+    "scope": "field"
+  },
+  {
+    "canonical": "SSN",
+    "variant": "SS#",
+    "scope": "field"
+  },
+  {
+    "canonical": "SSN",
+    "variant": "Soc Sec #",
+    "scope": "field"
+  },
+  {
+    "canonical": "DOB",
+    "variant": "Date of Birth",
+    "scope": "field"
+  },
+  {
+    "canonical": "DOB",
+    "variant": "Birthdate",
+    "scope": "field"
+  },
+  {
+    "canonical": "PlanName",
+    "variant": "Plan",
+    "scope": "field"
+  },
+  {
+    "canonical": "PlanName",
+    "variant": "Product",
+    "scope": "field"
+  },
+  {
+    "canonical": "CoverageCode",
+    "variant": "Benefit Code",
+    "scope": "field"
+  },
+  {
+    "canonical": "CoverageTier",
+    "variant": "Tier",
+    "scope": "field"
+  },
+  {
+    "canonical": "CoverageTier",
+    "variant": "Coverage Level",
+    "scope": "field"
+  },
+  {
+    "canonical": "EmployeeID",
+    "variant": "Emp ID",
+    "scope": "field"
+  },
+  {
+    "canonical": "EmployeeID",
+    "variant": "Employee Number",
+    "scope": "field"
+  },
+  {
+    "canonical": "Role",
+    "variant": "Relationship",
+    "scope": "field"
+  },
+  {
+    "canonical": "Spouse",
+    "variant": "Husband",
+    "scope": "value"
+  },
+  {
+    "canonical": "Spouse",
+    "variant": "Wife",
+    "scope": "value"
+  },
+  {
+    "canonical": "Child",
+    "variant": "Dependent Child",
+    "scope": "value"
+  },
+  {
+    "canonical": "Medical",
+    "variant": "Medical (Health)",
+    "scope": "value"
+  },
+  {
+    "canonical": "Dental",
+    "variant": "Dent.",
+    "scope": "value"
+  },
+  {
+    "canonical": "Vision",
+    "variant": "Vis.",
+    "scope": "value"
+  }
+]

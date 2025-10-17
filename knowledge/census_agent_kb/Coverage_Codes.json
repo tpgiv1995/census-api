@@ -1,0 +1,42 @@
+[
+  {
+    "code": "MED",
+    "description": "Medical"
+  },
+  {
+    "code": "DEN",
+    "description": "Dental"
+  },
+  {
+    "code": "VIS",
+    "description": "Vision"
+  },
+  {
+    "code": "LIFE",
+    "description": "Life"
+  },
+  {
+    "code": "STD",
+    "description": "Short-Term Disability"
+  },
+  {
+    "code": "LTD",
+    "description": "Long-Term Disability"
+  },
+  {
+    "code": "ACC",
+    "description": "Accident"
+  },
+  {
+    "code": "CI",
+    "description": "Critical Illness"
+  },
+  {
+    "code": "HSA",
+    "description": "Health Savings Account"
+  },
+  {
+    "code": "FSA",
+    "description": "Flexible Spending Account"
+  }
+]

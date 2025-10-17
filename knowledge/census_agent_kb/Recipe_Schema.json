@@ -1,0 +1,62 @@
+{
+  "title": "Census Recipe Schema r1",
+  "type": "object",
+  "properties": {
+    "target_columns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "args": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "op"
+        ]
+      }
+    },
+    "formatting": {
+      "type": "object"
+    },
+    "preview_rows": {
+      "type": "integer"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target_columns",
+    "steps",
+    "preview_rows",
+    "version"
+  ]
+}

@@ -1,0 +1,194 @@
+[
+  {
+    "field": "EmployeeID",
+    "type": "string",
+    "required": true,
+    "description": "Stable unique ID for the employee (not SSN).",
+    "example": "E12345",
+    "notes": "Primary key for employees; dependents reference this via DependentOf"
+  },
+  {
+    "field": "PersonID",
+    "type": "string",
+    "required": true,
+    "description": "Unique ID for every person (employee or dependent).",
+    "example": "P98765",
+    "notes": "Primary key for people if separate from EmployeeID"
+  },
+  {
+    "field": "Role",
+    "type": "enum:{Employee,Spouse,Child,Other}",
+    "required": true,
+    "description": "Relationship role in the policy household.",
+    "example": "Employee",
+    "notes": "Used with DependentOf to link dependents"
+  },
+  {
+    "field": "DependentOf",
+    "type": "string",
+    "required": false,
+    "description": "EmployeeID of the policyholder for this person if Role != Employee.",
+    "example": "E12345",
+    "notes": "Blank for Role=Employee; required otherwise"
+  },
+  {
+    "field": "FirstName",
+    "type": "string",
+    "required": true,
+    "description": "Given name.",
+    "example": "Pat",
+    "notes": ""
+  },
+  {
+    "field": "LastName",
+    "type": "string",
+    "required": true,
+    "description": "Family name.",
+    "example": "Higginbotham",
+    "notes": ""
+  },
+  {
+    "field": "MiddleName",
+    "type": "string",
+    "required": false,
+    "description": "Middle name or initial.",
+    "example": "A.",
+    "notes": ""
+  },
+  {
+    "field": "Suffix",
+    "type": "string",
+    "required": false,
+    "description": "Name suffix.",
+    "example": "Jr",
+    "notes": ""
+  },
+  {
+    "field": "DOB",
+    "type": "date:YYYY-MM-DD",
+    "required": true,
+    "description": "Date of birth.",
+    "example": "1990-06-30",
+    "notes": ""
+  },
+  {
+    "field": "Gender",
+    "type": "enum:{M,F,X,U}",
+    "required": false,
+    "description": "Gender code (if supplied).",
+    "example": "M",
+    "notes": "X/U allowed when unknown/unspecified"
+  },
+  {
+    "field": "SSN",
+    "type": "pattern:^\\d{9}$",
+    "required": false,
+    "description": "Nine digits, no dashes. Store/handle securely.",
+    "example": "123456789",
+    "notes": "PII; mask when previewing"
+  },
+  {
+    "field": "Email",
+    "type": "email",
+    "required": false,
+    "description": "Email address.",
+    "example": "pat@example.com",
+    "notes": ""
+  },
+  {
+    "field": "Address1",
+    "type": "string",
+    "required": false,
+    "description": "Street address line 1.",
+    "example": "123 Main St",
+    "notes": ""
+  },
+  {
+    "field": "Address2",
+    "type": "string",
+    "required": false,
+    "description": "Street address line 2.",
+    "example": "Apt 4B",
+    "notes": ""
+  },
+  {
+    "field": "City",
+    "type": "string",
+    "required": false,
+    "description": "City.",
+    "example": "Austin",
+    "notes": ""
+  },
+  {
+    "field": "State",
+    "type": "pattern:^[A-Z]{2}$",
+    "required": false,
+    "description": "Two-letter US state code.",
+    "example": "TX",
+    "notes": "Uppercase only"
+  },
+  {
+    "field": "Zip",
+    "type": "pattern:^\\d{5}(-?\\d{4})?$",
+    "required": false,
+    "description": "US ZIP 5 or ZIP+4.",
+    "example": "73301",
+    "notes": ""
+  },
+  {
+    "field": "PlanName",
+    "type": "string",
+    "required": true,
+    "description": "Carrier plan or product name.",
+    "example": "BlueChoice PPO 500",
+    "notes": ""
+  },
+  {
+    "field": "CoverageCode",
+    "type": "ref:Coverage_Codes.code",
+    "required": true,
+    "description": "Normalized product code.",
+    "example": "MED",
+    "notes": "See Coverage_Codes.json"
+  },
+  {
+    "field": "CoverageTier",
+    "type": "enum:{EE,EE+SP,EE+CH,EE+CH2+,FAM}",
+    "required": true,
+    "description": "Enrollment tier.",
+    "example": "FAM",
+    "notes": "Use org standard set"
+  },
+  {
+    "field": "EffectiveDate",
+    "type": "date:YYYY-MM-DD",
+    "required": true,
+    "description": "Coverage effective date.",
+    "example": "2025-01-01",
+    "notes": ""
+  },
+  {
+    "field": "TerminationDate",
+    "type": "date:YYYY-MM-DD|null",
+    "required": false,
+    "description": "Coverage end date if applicable.",
+    "example": "",
+    "notes": "Blank if active"
+  },
+  {
+    "field": "PayrollDeduction",
+    "type": "number",
+    "required": false,
+    "description": "Employee cost per pay period.",
+    "example": "85.50",
+    "notes": ""
+  },
+  {
+    "field": "EmployerCost",
+    "type": "number",
+    "required": false,
+    "description": "Employer cost per period.",
+    "example": "240.00",
+    "notes": ""
+  }
+]
