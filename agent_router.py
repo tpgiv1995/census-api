@@ -300,6 +300,24 @@ async def message(
     result = _run_agent(request, sess)
     return result
 
+from pydantic import BaseModel
+
+class MsgJSON(BaseModel):
+    session_id: str
+    text: str = ""
+
+@router.post("/message_json")
+async def message_json(request: Request, body: MsgJSON):
+    # reuse the same logic as /message
+    sid = body.session_id
+    if sid not in _SESSIONS:
+        return JSONResponse({"error": "invalid session_id"}, status_code=400)
+    sess = _SESSIONS[sid]
+    if body.text:
+        sess["messages"].append({"role": "user", "content": str(body.text)})
+    result = _run_agent(request, sess)
+    return result
+
 @router.get("/download/{sid}")
 async def download(sid: str):
     sess = _SESSIONS.get(sid)
