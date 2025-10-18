@@ -1,54 +1,56 @@
-# agent_router.py — AI agent orchestration with safe tool-call loop & message sanitizer
-from fastapi import APIRouter, UploadFile, File, Request
+# agent_router.py — AI agent orchestration with safe tool-call loop & flexible /message body parsing
+from fastapi import APIRouter, UploadFile, File, Request, Form, Body
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
-import os, io, json, uuid, requests
+import os, io, json, uuid, requests, logging
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+# ----------- Logging -----------
+log = logging.getLogger("agent")
+if not log.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 # ----------- OpenAI client -----------
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY is not set")
 
-# Model can be configured from Render env var; sensible default below
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini").strip()
-
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ----------- Simple in-memory session store -----------
-# NOTE: On Render free tiers, the process may restart; for production, persist sessions externally.
 _SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 def _new_session_id() -> str:
     return str(uuid.uuid4())
 
 def _base_url(req: Request) -> str:
-    # Use public URL Render gives to the request, not localhost
+    # Use public URL Render gives to this request
     return str(req.base_url).rstrip("/")
 
 # ----------- Agent instructions -----------
 AGENT_SYSTEM_PROMPT = """You are the Census Data Greeter Agent.
 Goal: transform a user-supplied census source file into the format required by a carrier template using three tools:
 - profile_source() → analyze files, return recipe_draft + questions
-- transform_census(recipe_json, auto_approve) → masked preview (≤20 rows) + stats
-- export_census(recipe_json) → final Excel file
+- transform_census(recipe_json, auto_approve) → masked 20-row preview + stats
+- export_census(recipe_json) → final Excel
 
 Rules (binding):
-• Never display raw PII. Mask SSNs as ***-**-1234; mask phones and emails similarly.
-• Previews must be capped at 20 rows.
-• Do not fabricate fields/values. If unsure, ask a concise clarifier.
-• Only export after explicit user approval.
+• Never display raw PII. Mask SSN as ***-**-1234; mask phones/emails.
+• Limit previews to ≤20 rows.
+• Don’t fabricate; ask a concise clarifier if unsure.
+• Export only after explicit user approval.
 
 Workflow:
 1) Wait until TWO files are present (source + template).
-2) Call profile_source. If questions are returned, ask them one-by-one; merge answers into the recipe.
-3) Build a strict Recipe JSON (valid keys only). Normalize field names and tiers (EE/ES/EC/EF/Waived).
-4) Call transform_census(auto_approve:true) and show a masked 20-row preview. Ask for approval.
-5) If user approves, call export_census and return completion.
+2) Call profile_source. If questions are returned, ask them one-by-one; merge answers.
+3) Build a strict Recipe JSON (valid keys only). Normalize field names & coverage tiers (EE/ES/EC/EF/Waived).
+4) Call transform_census(auto_approve:true), show a masked 20-row preview. Ask for approval.
+5) If approved, call export_census and return completion.
 
-Be concise. Summarize decisions. If a field is missing and required, plainly state the blocker and what you need.
+Be concise. Summarize decisions. If a required field is missing, state the blocker and what is needed.
 """
 
 # ----------- Tool specs advertised to the model -----------
@@ -81,12 +83,10 @@ TOOLS_SPEC = [
         "type": "function",
         "function": {
             "name": "export_census",
-            "description": "Exports the full transformed dataset to the carrier’s template using the final recipe.",
+            "description": "Exports the full transformed dataset using the final recipe.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "recipe_json": { "type": "string" }
-                },
+                "properties": { "recipe_json": { "type": "string" } },
                 "required": ["recipe_json"],
                 "additionalProperties": False
             },
@@ -97,10 +97,10 @@ TOOLS_SPEC = [
 # ----------- Helpers: sanitize + tool execution -----------
 def _sanitize_messages(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Ensure messages obey Chat Completions ordering:
-    - Keep only valid roles: system/user/assistant/tool
-    - Drop stray 'tool' messages that aren't responding to the immediately prior assistant tool_calls
-    - Ensure we always start with a system message (AGENT_SYSTEM_PROMPT)
+    Enforce Chat Completions ordering:
+    - Keep roles: system/user/assistant/tool
+    - Drop stray 'tool' messages that aren't responding to immediately prior assistant tool_calls
+    - Ensure first message is the system prompt
     """
     msgs: List[Dict[str, Any]] = []
     for m in raw:
@@ -109,37 +109,29 @@ def _sanitize_messages(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             continue
 
         if role == "tool":
-            # keep only if last message is assistant with tool_calls referencing this tool_call_id
             if not msgs:
                 continue
             prev = msgs[-1]
             tcid = m.get("tool_call_id")
             if prev.get("role") == "assistant" and prev.get("tool_calls") and tcid:
-                # verify tcid exists in prev tool_calls
                 ids = [tc.get("id") for tc in prev["tool_calls"] if isinstance(tc, dict)]
                 if tcid in ids:
-                    # coerce content to string
                     content = m.get("content")
                     if not isinstance(content, str):
                         content = json.dumps(content or {})
                     msgs.append({"role": "tool", "tool_call_id": tcid, "content": content})
-                # else: drop
-            # else: drop stray tool msg
             continue
 
         keep = {"role": role, "content": m.get("content")}
-        # pass through tool_calls if present on assistant
         if role == "assistant" and isinstance(m.get("tool_calls"), list):
             keep["tool_calls"] = m["tool_calls"]
         msgs.append(keep)
 
-    # Ensure first message is system
     if not msgs or msgs[0]["role"] != "system":
         msgs = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}] + msgs
     return msgs
 
 def _file_tuple(name: str, data: bytes):
-    # (filename, fileobj, content_type) — content_type omitted; server will infer
     return (name or "upload", io.BytesIO(data))
 
 def _call_profile(req: Request, sess: Dict[str, Any]) -> Dict[str, Any]:
@@ -172,11 +164,9 @@ def _call_export(req: Request, sess: Dict[str, Any], recipe_json: str) -> Dict[s
     data = { "recipe_json": recipe_json, "carrier_name": "" }
     r = requests.post(f"{base}/export", files=files, data=data, timeout=300)
     r.raise_for_status()
-    # cache export bytes in session and return a download URL
     sess["last_export"] = r.content
     return {"status": "export_ready", "download_url": f"/agent/download/{sess['id']}"}
 
-# Dispatch a single tool call from the model
 def _dispatch_tool(req: Request, sess: Dict[str, Any], tool_call: Dict[str, Any]) -> Dict[str, Any]:
     fn = tool_call.get("function", {})
     name = fn.get("name")
@@ -197,12 +187,7 @@ def _dispatch_tool(req: Request, sess: Dict[str, Any], tool_call: Dict[str, Any]
 
     return {"error": f"Unknown tool '{name}'"}
 
-# ----------- Agent loop -----------
 def _run_agent(req: Request, sess: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Runs up to N tool rounds until the model stops calling tools, then returns the final assistant message.
-    Also returns an optional download_url if export occurred.
-    """
     MAX_ROUNDS = 6
     messages = _sanitize_messages(sess["messages"])
 
@@ -218,11 +203,10 @@ def _run_agent(req: Request, sess: Dict[str, Any]) -> Dict[str, Any]:
             temperature=0.1,
         )
         choice = resp.choices[0]
-        asst = choice.message  # ChatCompletionMessage
-        # Convert assistant message to dict for our own history
+        asst = choice.message
+
         asst_dict: Dict[str, Any] = {"role": asst.role, "content": asst.content}
         if getattr(asst, "tool_calls", None):
-            # attach raw tool_calls for replay
             tool_calls = []
             for tc in asst.tool_calls:
                 tool_calls.append({
@@ -237,11 +221,9 @@ def _run_agent(req: Request, sess: Dict[str, Any]) -> Dict[str, Any]:
 
         messages.append(asst_dict)
 
-        # If model requested tools, execute each and append tool results
         if "tool_calls" in asst_dict and asst_dict["tool_calls"]:
             for tc in asst_dict["tool_calls"]:
                 result = _dispatch_tool(req, sess, tc)
-                # capture export URL if present
                 if isinstance(result, dict) and result.get("download_url"):
                     download_url = result["download_url"]
 
@@ -250,14 +232,11 @@ def _run_agent(req: Request, sess: Dict[str, Any]) -> Dict[str, Any]:
                     "tool_call_id": tc["id"],
                     "content": json.dumps(result)
                 })
-            # continue loop so model can see the tool outputs
             continue
 
-        # No tool calls → final assistant answer for this turn
         last_text = asst_dict.get("content") or ""
         break
 
-    # Persist session messages (sanitized + new turns)
     sess["messages"] = messages
 
     payload: Dict[str, Any] = {"text": last_text, "session_id": sess["id"]}
@@ -280,26 +259,44 @@ async def start(
         "id": sid,
         "source": {"name": source_file.filename, "bytes": src_bytes},
         "template": {"name": template_file.filename, "bytes": tpl_bytes},
-        # seed with system + a brief user nudge
         "messages": [
             {"role": "system", "content": AGENT_SYSTEM_PROMPT},
             {"role": "user", "content": "Two files uploaded (source + template). Please profile them and propose the recipe. Then show a masked 20-row preview before export."}
         ],
     }
     _SESSIONS[sid] = sess
+    log.info(f"[start] session {sid} created; files: {source_file.filename}, {template_file.filename}")
     return {"session_id": sid, "status": "ready"}
 
 @router.post("/message")
-async def message(request: Request, payload: Dict[str, Any]):
-    sid = (payload or {}).get("session_id")
-    text = (payload or {}).get("text", "").strip()
-    if not sid or sid not in _SESSIONS:
-        return JSONResponse({"error": "invalid session_id"}, status_code=400)
+async def message(
+    request: Request,
+    # Accept form *or* JSON
+    session_id_form: Optional[str] = Form(None),
+    text_form: Optional[str] = Form(None),
+    payload: Optional[Dict[str, Any]] = Body(None),
+):
+    ctype = request.headers.get("content-type", "")
+    log.info(f"[message] content-type: {ctype}")
 
-    sess = _SESSIONS[sid]
+    # Prefer JSON payload if present
+    session_id = session_id_form
+    text = text_form
+
+    if payload:
+        if session_id is None:
+            session_id = payload.get("session_id")
+        if text is None:
+            text = payload.get("text")
+
+    if not session_id or session_id not in _SESSIONS:
+        return JSONResponse({"error": "invalid or missing session_id"}, status_code=400)
+
+    sess = _SESSIONS[session_id]
     if text:
-        sess["messages"].append({"role": "user", "content": text})
+        sess["messages"].append({"role": "user", "content": str(text)})
 
+    log.info(f"[message] session {session_id}; text={bool(text)}")
     result = _run_agent(request, sess)
     return result
 
