@@ -23,6 +23,11 @@ app.add_middleware(
 from agent_router import router as agent_router
 app.include_router(agent_router)
 
+# Optional quick health check
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True, "service": "census-engine", "version": "1.4"}
+
 # ---------------- RAG-lite knowledge store ----------------
 KNOWLEDGE_PATH = "data/census_knowledge.json"
 os.makedirs("data", exist_ok=True)
@@ -45,7 +50,6 @@ def _save_ks(data):
 KS = _load_ks()
 
 def _tokenize(s: str) -> List[str]:
-    # normalize by removing non-alphanumeric (so "D.O.B." => "dob")
     cleaned = re.sub(r"[^a-z0-9]+", " ", (s or "").strip().lower())
     return [t for t in cleaned.split() if t]
 
@@ -77,7 +81,6 @@ def ks_suggest_mapping(src_cols:List[str], carrier_headers:List[str]) -> Dict[st
     src_set = set(src_cols)
     for tgt in carrier_headers:
         if tgt in per_tgt:
-            # pick the most-frequent learned src that exists this run
             best_src = None; best_count = -1
             for s,count in sorted(per_tgt[tgt].items(), key=lambda kv: kv[1], reverse=True):
                 if s in src_set:
@@ -151,7 +154,6 @@ def detect_employee_ssn(df:pd.DataFrame)->Tuple[Optional[str], float]:
     return best, 0.8
 
 def detect_second_ssn(df:pd.DataFrame, primary:str)->Optional[str]:
-    # Look for "member/individual ssn" or generic "ssn" not equal to primary
     cand_names = [c for c in df.columns if c != primary and (
         "member ssn" in c.lower() or "individual ssn" in c.lower() or c.lower().strip() == "ssn"
     )]
@@ -179,7 +181,6 @@ def detect_plan_per_row(df:pd.DataFrame, anchor_col:Optional[str])->Tuple[str,Op
         pt_candidates = [c for c in df.columns if any(k in c.lower() for k in
             ["benefit","plan type","coverage type","product","line of coverage","lob"])]
         attrs = [c for c in df.columns if any(k in c.lower() for k in
-            # Include election/coverage/tier in attributes
             ["election","coverage","tier","carrier","plan id","policy","effective","amount","premium","class","option"])]
         return "plan_per_row", (pt_candidates[0] if pt_candidates else None), attrs, 0.85
     return "plan_per_record", None, [], 0.70
@@ -190,7 +191,6 @@ def read_template_headers(template:UploadFile, raw:bytes)->List[str]:
     return [str(c).strip() for c in df.columns]
 
 def simple_best_match(src_cols:List[str], tgt:str)->Optional[str]:
-    # compare on token sets (punctuation-insensitive) for robust matches like DOB <-> D.O.B.
     t_tokens = set(_tokenize(tgt))
     best, best_score = None, 0.0
     for c in src_cols:
@@ -218,14 +218,12 @@ def map_to_headers(df_out:pd.DataFrame, carrier_headers:List[str])->Tuple[pd.Dat
 def normalize_election(val:str)->str:
     s = (val or "").strip().lower()
     if not s: return ""
-    # canonical long-form
     if s in ("ee","employee","emp","employee only","single"): return "Employee"
     if s in ("es","ee+spouse","employee+spouse","employee + spouse","emp+spouse"): return "Employee+Spouse"
     if s in ("ec","ee+child","employee+child","employee + child","ee+children","employee+children","employee + children","emp+children","employee + child(ren)","employee+child(ren)"): 
         return "Employee+Children"
     if s in ("ef","ee+family","employee+family","employee + family","family"): return "Employee+Family"
     if "waiv" in s or s=="decline" or s=="declined": return "Waived"
-    # fallback best-effort
     s2 = re.sub(r"\s+","",s)
     if s2.startswith("employee+spouse"): return "Employee+Spouse"
     if s2.startswith("employee+child"): return "Employee+Children"
@@ -235,13 +233,10 @@ def normalize_election(val:str)->str:
     return (val or "").strip()
 
 def pick_election_column(cols:List[str])->Optional[str]:
-    # prefer explicit 'election', then 'coverage', then 'tier'
     order = ["election", "coverage", "tier"]
-    lowered = [c.lower() for c in cols]
     for key in order:
         matches = [c for c in cols if key in c.lower()]
         if matches:
-            # Prefer shortest, simplest label
             return sorted(matches, key=lambda x: (len(x), x.lower())).pop(0)
     return None
 
@@ -397,17 +392,13 @@ async def transform(
 
             for pval in sorted(plan_df[plan_col].dropna().unique()):
                 pblock = plan_df[plan_df[plan_col]==pval].groupby(key).first()
-
-                # rename all attrs under this plan; if we have election_col, map only that to "Election"
                 rename_map = {}
                 for a in attrs:
                     if election_col and a == election_col:
                         rename_map[a] = f"{pval} - Election"
                     else:
                         rename_map[a] = f"{pval} - {a}"
-
                 pblock = pblock.rename(columns=rename_map)
-                # drop the plan_col if present
                 pblock = pblock.drop(columns=[c for c in pblock.columns if c == plan_col], errors="ignore")
                 wide = wide.join(pblock, how="left")
             out = wide.reset_index()
