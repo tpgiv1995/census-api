@@ -1,16 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, Form, Request
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
+# app.py — API-only backend (no Jinja2/template routes)
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional, Tuple
 import io, os, re, json
 import pandas as pd
 
-# ---------------- App, CORS & static/templates ----------------
+# ---------------- App & CORS ----------------
 app = FastAPI(title="Census Engine", version="1.4")
 
-# CORS: allow your Netlify front-end (or * while testing)
+# Allow your Netlify UI to call this API
 allow_origins = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -20,10 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# ---- Mount the AI agent router (drives recipe creation & transform/export orchestration)
+# ---- Mount the AI agent router (drives AI orchestration)
 from agent_router import router as agent_router
 app.include_router(agent_router)
 
@@ -245,7 +241,7 @@ def pick_election_column(cols:List[str])->Optional[str]:
     for key in order:
         matches = [c for c in cols if key in c.lower()]
         if matches:
-            # Prefer shortest, simplest label (often the intended signal)
+            # Prefer shortest, simplest label
             return sorted(matches, key=lambda x: (len(x), x.lower())).pop(0)
     return None
 
@@ -267,15 +263,6 @@ def mask_preview_value(col:str, val:str)->str:
         except:
             return "p***@e******.com"
     return s
-
-# ---------------- UI routes ----------------
-@app.get("/", response_class=HTMLResponse)
-async def home(request:Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-@app.get("/ui", response_class=HTMLResponse)
-async def ui(request:Request):
-    return templates.TemplateResponse("index.html", {"request": request})
 
 # ---------------- PROFILE ----------------
 CONF_CUTOFF = 0.80
