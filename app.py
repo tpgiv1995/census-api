@@ -1,15 +1,22 @@
 # app.py — API-only backend (no Jinja2/template routes)
-from fastapi import FastAPI, UploadFile, File, Form
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional, Tuple
 import io, os, re, json
 import pandas as pd
 
-# ---------------- App & CORS ----------------
-app = FastAPI(title="Census Engine", version="1.4")
+# ChatKit / OpenAI client
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None  # handled in /api/chatkit/session
 
-# Allow your Netlify UI to call this API
+# ---------------- App & CORS ----------------
+app = FastAPI(title="Census Engine", version="1.5")
+
+# Allow your Netlify/UI origins to call this API
 allow_origins = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -23,10 +30,38 @@ app.add_middleware(
 from agent_router import router as agent_router
 app.include_router(agent_router)
 
+# -------- ChatKit session endpoint (for embedded chat widget) --------
+@app.post("/api/chatkit/session")
+def create_chatkit_session():
+    """
+    Mint a ChatKit session bound to your published Agent Builder workflow and
+    return a short-lived client_secret token for the browser chat widget.
+    Also enables file uploads in the chat UI.
+    """
+    api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    workflow_id = (os.environ.get("OPENAI_WORKFLOW_ID") or "").strip()
+
+    if not OpenAI:
+        raise HTTPException(status_code=500, detail="OpenAI SDK not installed on server.")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
+    if not workflow_id:
+        raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
+
+    try:
+        client = OpenAI(api_key=api_key)
+        session = client.chatkit.sessions.create({
+            "workflow_id": workflow_id,
+            "chatkit_configuration": {"file_upload": {"enabled": True}}
+        })
+        return {"client_secret": session.client_secret}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
+
 # Optional quick health check
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "service": "census-engine", "version": "1.4"}
+    return {"ok": True, "service": "census-engine", "version": "1.5"}
 
 # ---------------- RAG-lite knowledge store ----------------
 KNOWLEDGE_PATH = "data/census_knowledge.json"
