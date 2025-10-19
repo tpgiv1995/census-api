@@ -54,12 +54,14 @@ from agent_router import router as agent_router
 app.include_router(agent_router)
 
 # -------- ChatKit session endpoint (for embedded chat widget) --------
+from fastapi import HTTPException
+import uuid, os, requests, traceback
+
 @app.post("/api/chatkit/session")
 def create_chatkit_session():
     """
     Mint a ChatKit session bound to your published Agent Builder workflow and
     return a short-lived client_secret token for the browser chat widget.
-    Also enables file uploads in the chat UI.
     """
     api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
     workflow_id = (os.environ.get("OPENAI_WORKFLOW_ID") or "").strip()
@@ -76,41 +78,47 @@ def create_chatkit_session():
         print("❌ OPENAI_WORKFLOW_ID is not set")
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
-    # Build payload with user as a **string** (not an object)
-    user_str = f"anon-{uuid.uuid4()}"
+    # Minimal, schema-safe payload (uploads ON)
     payload = {
-        "workflow": {"id": workflow_id},           # already correct
-        "user": user_str,   # must be a plain string
+        "workflow": {"id": workflow_id},
+        "user": f"anon-{uuid.uuid4()}",         # must be a STRING
         "chatkit_configuration": {
             "file_upload": {
-                "enabled": True,                   # <- turns on paperclip
-                "accept": [".csv", ".xlsx", ".xls", ".txt"],
-                "multiple": True,
-                "max_files": 6,                    # optional; adjust as you like
-                "max_file_size": 512               # MB; ChatKit max per doc
-            },
-            # (optional) keep chat history defaults, or configure here
-            # "history": {"enabled": True, "recent_threads": 10}
+                "enabled": True                 # <- this toggles the paperclip
+            }
         }
     }
 
-    # Sanity print to prove what we are sending, right before HTTP call
-    print("🧪 payload.user type:", type(payload["user"]).__name__, "value:", payload["user"])
-
-    # Try SDK first (if installed and supports ChatKit)
     try:
-        if OpenAI is not None:
-            client = OpenAI(api_key=api_key)
-            if hasattr(client, "chatkit") and hasattr(client.chatkit, "sessions"):
-                session = client.chatkit.sessions.create(payload)
-                print("✅ ChatKit session created via SDK")
-                return {"client_secret": session.client_secret}
-            else:
-                print("ℹ️ SDK missing .chatkit; using REST fallback")
-        else:
-            print("ℹ️ OpenAI SDK not available; using REST fallback")
+        r = requests.post(
+            "https://api.openai.com/v1/chatkit/sessions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "OpenAI-Beta": "chatkit_beta=v1",  # required for ChatKit
+            },
+            json=payload,
+            timeout=20
+        )
+        if r.status_code >= 400:
+            print("❌ REST create session failed:", r.status_code, r.text[:400])
+            raise HTTPException(status_code=500, detail=f"ChatKit session error: {r.text}")
+
+        data = r.json()
+        client_secret = data.get("client_secret") or data.get("session", {}).get("client_secret")
+        if not client_secret:
+            print("❌ REST response missing client_secret:", data)
+            raise HTTPException(status_code=500, detail="ChatKit session error: missing client_secret in response")
+
+        print("✅ ChatKit session created via REST")
+        return {"client_secret": client_secret}
+
+    except HTTPException:
+        raise
     except Exception as e:
-        print("⚠️ SDK path failed, will attempt REST fallback:", repr(e))
+        print("❌ ChatKit session creation FAILED (REST):")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
 
     # REST fallback — required header: OpenAI-Beta: chatkit_beta=v1
     try:
