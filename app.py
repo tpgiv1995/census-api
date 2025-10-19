@@ -72,19 +72,13 @@ def create_chatkit_session():
         print("❌ OPENAI_WORKFLOW_ID is not set")
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
-    payload = {
-        "workflow": {"id": workflow_id},
-        "user": {
-            # any opaque ID string; unique per human is ideal. For now generate per session:
-            "id": f"anon-{uuid.uuid4()}",
-            # optional niceties:
-            # "name": "Web User",
-            # "metadata": {"origin": "netlify", "ip": request.client.host if request else None}
-        },
-        "chatkit_configuration": {
-            "file_upload": {"enabled": True}
-        }
+payload = {
+    "workflow": {"id": workflow_id},
+    "user": f"anon-{uuid.uuid4()}",   # <-- string, not object
+    "chatkit_configuration": {
+        "file_upload": {"enabled": True}
     }
+}
 
     # Try SDK first (if installed and supports ChatKit)
     try:
