@@ -27,13 +27,17 @@ except Exception:
 app = FastAPI(title="Census Engine", version="1.5")
 
 # Allow your Netlify/UI origins to call this API.
-# You can set CORS_ALLOW_ORIGINS in Render env to a comma-separated list,
-# e.g. "https://higgcdt.netlify.app, http://localhost:5173"
+# Set CORS_ALLOW_ORIGINS in Render env to comma-separated list (no trailing slashes)
 env_origins = os.environ.get("CORS_ALLOW_ORIGINS", "").strip()
+
 if env_origins:
-    allow_origins = [o.strip() for o in env_origins.split(",") if o.strip()]
+    allow_origins = []
+    for o in env_origins.split(","):
+        s = o.strip().rstrip("/")  # <- normalize (remove trailing '/')
+        if s:
+            allow_origins.append(s)
 else:
-    allow_origins = ["https://higgcdt.netlify.app"]
+    allow_origins = ["https://higgcdt.netlify.app"]  # sane default
 
 log.info(f"CORS allow_origins = {allow_origins}")
 
