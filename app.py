@@ -96,12 +96,13 @@ def create_chatkit_session():
         print("⚠️ SDK path failed, will attempt REST fallback:", repr(e))
 
     # REST fallback — call OpenAI ChatKit Sessions API directly
-    try:
+ try:
         r = requests.post(
             "https://api.openai.com/v1/chatkit/sessions",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
+                "OpenAI-Beta": "chatkit_beta=v1",   # <<<<<< REQUIRED
             },
             json=payload,
             timeout=20
