@@ -72,14 +72,18 @@ def create_chatkit_session():
         print("❌ OPENAI_WORKFLOW_ID is not set")
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
-    # Build payload for ChatKit Sessions API
+    # Build payload with user as a **string** (not an object)
+    user_str = f"anon-{uuid.uuid4()}"
     payload = {
-        "workflow": {"id": workflow_id},        # correct shape
-        "user": f"anon-{uuid.uuid4()}",         # string, not object
+        "workflow": {"id": workflow_id},
+        "user": user_str,   # must be a plain string
         "chatkit_configuration": {
             "file_upload": {"enabled": True}
         }
     }
+
+    # Sanity print to prove what we are sending, right before HTTP call
+    print("🧪 payload.user type:", type(payload["user"]).__name__, "value:", payload["user"])
 
     # Try SDK first (if installed and supports ChatKit)
     try:
@@ -113,7 +117,6 @@ def create_chatkit_session():
             raise HTTPException(status_code=500, detail=f"ChatKit session error: {r.text}")
 
         data = r.json()
-        # Some responses return top-level, some nest under 'session'
         client_secret = data.get("client_secret") or data.get("session", {}).get("client_secret")
         if not client_secret:
             print("❌ REST response missing client_secret:", data)
@@ -128,11 +131,6 @@ def create_chatkit_session():
         print("❌ ChatKit session creation FAILED (REST):")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
-
-# Optional quick health check
-@app.get("/healthz")
-async def healthz():
-    return {"ok": True, "service": "census-engine", "version": "1.5"}
 
 # ---------------- RAG-lite knowledge store ----------------
 KNOWLEDGE_PATH = "data/census_knowledge.json"
