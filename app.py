@@ -20,7 +20,7 @@ app = FastAPI(title="Census Engine", version="1.5")
 allow_origins = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins,
+    allow_origins=["https://higgcdt.netlify.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
