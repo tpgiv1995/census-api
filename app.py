@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional, Tuple
 import io, os, re, json, traceback, logging
 import pandas as pd
+import requests
 
 # ---------------- Logging ----------------
 log = logging.getLogger("census-app")
@@ -48,8 +49,6 @@ from agent_router import router as agent_router
 app.include_router(agent_router)
 
 # -------- ChatKit session endpoint (for embedded chat widget) --------
-import requests  # add this near your other imports
-
 @app.post("/api/chatkit/session")
 def create_chatkit_session():
     """
@@ -72,17 +71,15 @@ def create_chatkit_session():
         print("❌ OPENAI_WORKFLOW_ID is not set")
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
-    # Request body used by both SDK and REST fallback
     payload = {
         "workflow_id": workflow_id,
         "chatkit_configuration": {"file_upload": {"enabled": True}}
     }
 
-    # Try SDK first (if it has ChatKit)
+    # Try SDK first (if installed and supports ChatKit)
     try:
         if OpenAI is not None:
             client = OpenAI(api_key=api_key)
-            # If the installed SDK supports ChatKit, this attribute exists
             if hasattr(client, "chatkit") and hasattr(client.chatkit, "sessions"):
                 session = client.chatkit.sessions.create(payload)
                 print("✅ ChatKit session created via SDK")
@@ -92,17 +89,16 @@ def create_chatkit_session():
         else:
             print("ℹ️ OpenAI SDK not available; using REST fallback")
     except Exception as e:
-        # If the SDK path fails for any reason, fall through to REST
         print("⚠️ SDK path failed, will attempt REST fallback:", repr(e))
 
-    # REST fallback — call OpenAI ChatKit Sessions API directly
- try:
+    # REST fallback — required header: OpenAI-Beta: chatkit_beta=v1
+    try:
         r = requests.post(
             "https://api.openai.com/v1/chatkit/sessions",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "OpenAI-Beta": "chatkit_beta=v1",   # <<<<<< REQUIRED
+                "OpenAI-Beta": "chatkit_beta=v1",
             },
             json=payload,
             timeout=20
@@ -124,7 +120,8 @@ def create_chatkit_session():
         raise
     except Exception as e:
         print("❌ ChatKit session creation FAILED (REST):")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
 
 # ---------------- RAG-lite knowledge store ----------------
