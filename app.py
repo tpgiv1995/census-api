@@ -48,6 +48,8 @@ from agent_router import router as agent_router
 app.include_router(agent_router)
 
 # -------- ChatKit session endpoint (for embedded chat widget) --------
+import requests  # add this near your other imports
+
 @app.post("/api/chatkit/session")
 def create_chatkit_session():
     """
@@ -59,40 +61,70 @@ def create_chatkit_session():
     workflow_id = (os.environ.get("OPENAI_WORKFLOW_ID") or "").strip()
 
     # Debug breadcrumbs (masked)
-    log.info("🔧 ChatKit session creation started")
-    log.info("🔑 OPENAI_API_KEY starts with: %r", api_key[:10])
-    log.info("🧬 OPENAI_WORKFLOW_ID: %r", workflow_id)
+    print("🔧 ChatKit session creation started")
+    print("🔑 OPENAI_API_KEY starts with:", repr(api_key[:10]))
+    print("🧬 OPENAI_WORKFLOW_ID:", repr(workflow_id))
 
-    if not OpenAI:
-        log.error("❌ OpenAI SDK not installed")
-        raise HTTPException(status_code=500, detail="OpenAI SDK not installed on server.")
     if not api_key:
-        log.error("❌ OPENAI_API_KEY is not set")
+        print("❌ OPENAI_API_KEY is not set")
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
     if not workflow_id:
-        log.error("❌ OPENAI_WORKFLOW_ID is not set")
+        print("❌ OPENAI_WORKFLOW_ID is not set")
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
+    # Request body used by both SDK and REST fallback
+    payload = {
+        "workflow_id": workflow_id,
+        "chatkit_configuration": {"file_upload": {"enabled": True}}
+    }
+
+    # Try SDK first (if it has ChatKit)
     try:
-        client = OpenAI(api_key=api_key)
-        # NOTE: chatkit.sessions.create is the documented call.
-        # It does NOT execute your agent workflow yet; it only mints a client_secret.
-        session = client.chatkit.sessions.create({
-            "workflow_id": workflow_id,
-            "chatkit_configuration": {"file_upload": {"enabled": True}}
-        })
-        log.info("✅ ChatKit session created successfully")
-        return {"client_secret": session.client_secret}
-
+        if OpenAI is not None:
+            client = OpenAI(api_key=api_key)
+            # If the installed SDK supports ChatKit, this attribute exists
+            if hasattr(client, "chatkit") and hasattr(client.chatkit, "sessions"):
+                session = client.chatkit.sessions.create(payload)
+                print("✅ ChatKit session created via SDK")
+                return {"client_secret": session.client_secret}
+            else:
+                print("ℹ️ SDK missing .chatkit; using REST fallback")
+        else:
+            print("ℹ️ OpenAI SDK not available; using REST fallback")
     except Exception as e:
-        log.error("❌ ChatKit session creation FAILED")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
+        # If the SDK path fails for any reason, fall through to REST
+        print("⚠️ SDK path failed, will attempt REST fallback:", repr(e))
 
-# Optional quick health check
-@app.get("/healthz")
-async def healthz():
-    return {"ok": True, "service": "census-engine", "version": "1.5"}
+    # REST fallback — call OpenAI ChatKit Sessions API directly
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/chatkit/sessions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=20
+        )
+        if r.status_code >= 400:
+            print("❌ REST create session failed:", r.status_code, r.text[:400])
+            raise HTTPException(status_code=500, detail=f"ChatKit session error: {r.text}")
+
+        data = r.json()
+        client_secret = data.get("client_secret")
+        if not client_secret:
+            print("❌ REST response missing client_secret:", data)
+            raise HTTPException(status_code=500, detail="ChatKit session error: missing client_secret in response")
+
+        print("✅ ChatKit session created via REST")
+        return {"client_secret": client_secret}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("❌ ChatKit session creation FAILED (REST):")
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
 
 # ---------------- RAG-lite knowledge store ----------------
 KNOWLEDGE_PATH = "data/census_knowledge.json"
