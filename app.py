@@ -77,9 +77,10 @@ def create_chatkit_session():
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
     # Build payload with user as a **string** (not an object)
+        user_str = f"anon-{uuid.uuid4()}"
     payload = {
+        "user": user_str,   # must be a plain string
         "workflow": {"id": workflow_id},
-        "user": f"anon-{uuid.uuid4()}",
         "chatkit_configuration": {
             "file_upload": {
                 "enabled": True,
@@ -88,7 +89,6 @@ def create_chatkit_session():
             }
         }
     }
-
 
     # Sanity print to prove what we are sending, right before HTTP call
     print("🧪 payload.user type:", type(payload["user"]).__name__, "value:", payload["user"])
