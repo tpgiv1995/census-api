@@ -13,7 +13,7 @@ python-multipart==0.0.20
 
 # --- HTTP / OpenAI ---
 requests==2.32.3
-openai==1.52.2
+openai>=1.51.0
 httpx==0.27.2         # compatible with OpenAI 1.52.x
 httpcore==1.0.5       # pairs with httpx 0.27.x
 h11==0.14.0           # < 0.15 to satisfy httpcore 1.0.5
