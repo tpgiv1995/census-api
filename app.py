@@ -4,8 +4,16 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional, Tuple
-import io, os, re, json
+import io, os, re, json, traceback, logging
 import pandas as pd
+
+# ---------------- Logging ----------------
+log = logging.getLogger("census-app")
+if not log.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s"
+    )
 
 # ChatKit / OpenAI client
 try:
@@ -16,11 +24,20 @@ except Exception:
 # ---------------- App & CORS ----------------
 app = FastAPI(title="Census Engine", version="1.5")
 
-# Allow your Netlify/UI origins to call this API
-allow_origins = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "*").split(",")]
+# Allow your Netlify/UI origins to call this API.
+# You can set CORS_ALLOW_ORIGINS in Render env to a comma-separated list,
+# e.g. "https://higgcdt.netlify.app, http://localhost:5173"
+env_origins = os.environ.get("CORS_ALLOW_ORIGINS", "").strip()
+if env_origins:
+    allow_origins = [o.strip() for o in env_origins.split(",") if o.strip()]
+else:
+    allow_origins = ["https://higgcdt.netlify.app"]
+
+log.info(f"CORS allow_origins = {allow_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://higgcdt.netlify.app"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,21 +58,35 @@ def create_chatkit_session():
     api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
     workflow_id = (os.environ.get("OPENAI_WORKFLOW_ID") or "").strip()
 
+    # Debug breadcrumbs (masked)
+    log.info("🔧 ChatKit session creation started")
+    log.info("🔑 OPENAI_API_KEY starts with: %r", api_key[:10])
+    log.info("🧬 OPENAI_WORKFLOW_ID: %r", workflow_id)
+
     if not OpenAI:
+        log.error("❌ OpenAI SDK not installed")
         raise HTTPException(status_code=500, detail="OpenAI SDK not installed on server.")
     if not api_key:
+        log.error("❌ OPENAI_API_KEY is not set")
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
     if not workflow_id:
+        log.error("❌ OPENAI_WORKFLOW_ID is not set")
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
     try:
         client = OpenAI(api_key=api_key)
+        # NOTE: chatkit.sessions.create is the documented call.
+        # It does NOT execute your agent workflow yet; it only mints a client_secret.
         session = client.chatkit.sessions.create({
             "workflow_id": workflow_id,
             "chatkit_configuration": {"file_upload": {"enabled": True}}
         })
+        log.info("✅ ChatKit session created successfully")
         return {"client_secret": session.client_secret}
+
     except Exception as e:
+        log.error("❌ ChatKit session creation FAILED")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
 
 # Optional quick health check
