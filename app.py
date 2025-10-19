@@ -72,13 +72,14 @@ def create_chatkit_session():
         print("❌ OPENAI_WORKFLOW_ID is not set")
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
-payload = {
-    "workflow": {"id": workflow_id},
-    "user": f"anon-{uuid.uuid4()}",   # <-- string, not object
-    "chatkit_configuration": {
-        "file_upload": {"enabled": True}
+    # Build payload for ChatKit Sessions API
+    payload = {
+        "workflow": {"id": workflow_id},        # correct shape
+        "user": f"anon-{uuid.uuid4()}",         # string, not object
+        "chatkit_configuration": {
+            "file_upload": {"enabled": True}
+        }
     }
-}
 
     # Try SDK first (if installed and supports ChatKit)
     try:
@@ -112,7 +113,8 @@ payload = {
             raise HTTPException(status_code=500, detail=f"ChatKit session error: {r.text}")
 
         data = r.json()
-        client_secret = data.get("client_secret")
+        # Some responses return top-level, some nest under 'session'
+        client_secret = data.get("client_secret") or data.get("session", {}).get("client_secret")
         if not client_secret:
             print("❌ REST response missing client_secret:", data)
             raise HTTPException(status_code=500, detail="ChatKit session error: missing client_secret in response")
@@ -124,9 +126,13 @@ payload = {
         raise
     except Exception as e:
         print("❌ ChatKit session creation FAILED (REST):")
-        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
+
+# Optional quick health check
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True, "service": "census-engine", "version": "1.5"}
 
 # ---------------- RAG-lite knowledge store ----------------
 KNOWLEDGE_PATH = "data/census_knowledge.json"
@@ -320,7 +326,7 @@ def normalize_election(val:str)->str:
     if not s: return ""
     if s in ("ee","employee","emp","employee only","single"): return "Employee"
     if s in ("es","ee+spouse","employee+spouse","employee + spouse","emp+spouse"): return "Employee+Spouse"
-    if s in ("ec","ee+child","employee+child","employee + child","ee+children","employee+children","employee + children","emp+children","employee + child(ren)","employee+child(ren)"): 
+    if s in ("ec","ee+child","employee+child","employee + child","ee+children","employee+children","employee + children","emp+children","employee + child(ren)","employee+child(ren)"):
         return "Employee+Children"
     if s in ("ef","ee+family","employee+family","employee + family","family"): return "Employee+Family"
     if "waiv" in s or s=="decline" or s=="declined": return "Waived"
@@ -345,14 +351,14 @@ def mask_preview_value(col:str, val:str)->str:
     s = str(val or "")
     lc = (col or "").lower()
     if "ssn" in lc or "social" in lc:
-        digits = re.sub(r"\D","",s)
-        return f"***-**-{digits[-4:]}" if len(digits)>=4 else "***-**-****"
+        digits = re.sub(r"\D", "", s)
+        return f"***-**-{digits[-4:]}" if len(digits) >= 4 else "***-**-****"
     if "phone" in lc or re.search(r"\d{3}[\s\-]?\d{3}[\s\-]?\d{4}", s):
-        digits = re.sub(r"\D","",s)
-        return f"(***) ***-{digits[-4:]}" if len(digits)>=4 else "***-***-****"
+        digits = re.sub(r"\D", "", s)
+        return f"(***) ***-{digits[-4:]}" if len(digits) >= 4 else "***-***-****"
     if "@" in s:
         try:
-            user, dom = s.split("@",1)
+            user, dom = s.split("@", 1)
             dom_name, *tld = dom.split(".")
             return f"{(user[:1] or '*')}***@{(dom_name[:1] or '*')}******.{'.'.join(tld) if tld else 'com'}"
         except:
@@ -374,10 +380,10 @@ async def profile(
 
     emp_ssn_col, emp_conf = detect_employee_ssn(df)
     if emp_ssn_col:
-        anchor = {"type":"employee_ssn","field":emp_ssn_col,"confidence":emp_conf}
+        anchor = {"type": "employee_ssn", "field": emp_ssn_col, "confidence": emp_conf}
         key = emp_ssn_col
     else:
-        anchor = {"type":"composite","field":None,"fallback_composite":["FirstName","LastName","DOB"],"confidence":0.60}
+        anchor = {"type": "composite", "field": None, "fallback_composite": ["FirstName", "LastName", "DOB"], "confidence": 0.60}
         key = None
 
     rel_field, emp_vals, rel_conf = detect_relationship(df)
@@ -385,7 +391,7 @@ async def profile(
     plan_mode, plan_type, plan_attrs, plan_conf = detect_plan_per_row(df, key)
 
     recipe = {
-        "version":"1.0",
+        "version": "1.0",
         "anchor": anchor,
         "relationship": {"field": rel_field, "employee_values": emp_vals, "confidence": rel_conf},
         "structure": {
@@ -395,28 +401,28 @@ async def profile(
             "plan_attrs": plan_attrs[:6],
             "confidence": min(dep_conf, plan_conf)
         },
-        "mapping": {"employee":{}, "dependent":{}, "plan_columns":{}},
-        "export": {"layout":"Row-Based","include_dependents":True,"columns_order":[]}
+        "mapping": {"employee": {}, "dependent": {}, "plan_columns": {}},
+        "export": {"layout": "Row-Based", "include_dependents": True, "columns_order": []}
     }
 
     boost = ks_template_boost(carrier_headers)
-    recipe["anchor"]["confidence"] = min(0.98, recipe["anchor"]["confidence"]+boost)
-    recipe["relationship"]["confidence"] = min(0.98, recipe["relationship"]["confidence"]+boost/2)
-    recipe["structure"]["confidence"] = min(0.98, recipe["structure"]["confidence"]+boost)
+    recipe["anchor"]["confidence"] = min(0.98, recipe["anchor"]["confidence"] + boost)
+    recipe["relationship"]["confidence"] = min(0.98, recipe["relationship"]["confidence"] + boost / 2)
+    recipe["structure"]["confidence"] = min(0.98, recipe["structure"]["confidence"] + boost)
 
     questions = []
-    if recipe["anchor"]["type"]=="composite" and recipe["anchor"]["confidence"]<CONF_CUTOFF:
-        questions.append({"id":"choose_anchor","text":"No confident unique ID found. Select the employee ID field or choose 'Use Composite: First+Last+DOB'.","options":list(df.columns)+["Use Composite: First+Last+DOB"]})
-    if recipe["relationship"]["confidence"]<CONF_CUTOFF:
-        questions.append({"id":"relationship_field","text":"Which field contains relationship (e.g., Employee/Spouse/Child)?","options":list(df.columns)})
-        questions.append({"id":"employee_value","text":"Which value indicates the employee?","options":[]})
-    if recipe["structure"]["plans"]=="plan_per_row" and recipe["structure"]["plan_type_field"] is None:
-        questions.append({"id":"plan_type_field","text":"Select the field that identifies plan type (e.g., Benefit Type).","options":list(df.columns)})
-        questions.append({"id":"plan_detail_fields","text":"Select plan detail fields (multi-select).","options":list(df.columns)})
+    if recipe["anchor"]["type"] == "composite" and recipe["anchor"]["confidence"] < CONF_CUTOFF:
+        questions.append({"id": "choose_anchor", "text": "No confident unique ID found. Select the employee ID field or choose 'Use Composite: First+Last+DOB'.", "options": list(df.columns) + ["Use Composite: First+Last+DOB"]})
+    if recipe["relationship"]["confidence"] < CONF_CUTOFF:
+        questions.append({"id": "relationship_field", "text": "Which field contains relationship (e.g., Employee/Spouse/Child)?", "options": list(df.columns)})
+        questions.append({"id": "employee_value", "text": "Which value indicates the employee?", "options": []})
+    if recipe["structure"]["plans"] == "plan_per_row" and recipe["structure"]["plan_type_field"] is None:
+        questions.append({"id": "plan_type_field", "text": "Select the field that identifies plan type (e.g., Benefit Type).", "options": list(df.columns)})
+        questions.append({"id": "plan_detail_fields", "text": "Select plan detail fields (multi-select).", "options": list(df.columns)})
 
     return JSONResponse({
         "recipe_draft": recipe,
-        "needs_questions": len(questions)>0,
+        "needs_questions": len(questions) > 0,
         "questions": questions,
         "carrier_headers": carrier_headers,
         "telemetry": {
@@ -441,24 +447,25 @@ async def transform(
     tmp_raw = await template_file.read()
     carrier_headers = read_template_headers(template_file, tmp_raw)
 
-    emp_ssn_field = recipe.get("anchor",{}).get("field")
+    emp_ssn_field = recipe.get("anchor", {}).get("field")
     member_ssn_field = detect_second_ssn(df, emp_ssn_field) if emp_ssn_field else None
 
-    def apply_transform(df_in:pd.DataFrame, recipe:Dict[str,Any])->pd.DataFrame:
+    def apply_transform(df_in: pd.DataFrame, recipe: Dict[str, Any]) -> pd.DataFrame:
         # Anchor / key
-        if recipe["anchor"]["type"]=="employee_ssn" and recipe["anchor"]["field"] in df_in.columns:
+        if recipe["anchor"]["type"] == "employee_ssn" and recipe["anchor"]["field"] in df_in.columns:
             key = recipe["anchor"]["field"]
         else:
-            parts = recipe["anchor"].get("fallback_composite") or ["FirstName","LastName","DOB"]
+            parts = recipe["anchor"].get("fallback_composite") or ["FirstName", "LastName", "DOB"]
             for p in parts:
-                if p not in df_in.columns: df_in[p] = ""
+                if p not in df_in.columns:
+                    df_in[p] = ""
             key = "_composite_key"
             df_in[key] = df_in[parts].astype(str).agg("|".join, axis=1)
 
         base = df_in.copy()
         relcol = recipe["relationship"].get("field")
-        if recipe["structure"]["dependents"]=="row_based" and relcol:
-            emp_values = {v.lower() for v in recipe["relationship"].get("employee_values",["employee","ee"])}
+        if recipe["structure"]["dependents"] == "row_based" and relcol:
+            emp_values = {v.lower() for v in recipe["relationship"].get("employee_values", ["employee", "ee"])}
             base["_is_employee"] = base[relcol].astype(str).str.lower().isin(emp_values)
             base = base[base["_is_employee"]].copy()
 
@@ -474,24 +481,24 @@ async def transform(
         out = base.copy()
 
         # Plans: plan_per_row -> wide by plan type, include normalized election/coverage/tier
-        if recipe["structure"]["plans"]=="plan_per_row" and recipe["structure"].get("plan_type_field"):
+        if recipe["structure"]["plans"] == "plan_per_row" and recipe["structure"].get("plan_type_field"):
             plan_col = recipe["structure"]["plan_type_field"]
             attrs_raw = recipe["structure"].get("plan_attrs") or []
             attrs = [a for a in attrs_raw if a in df_in.columns]
 
             # pick ONE best "election-like" column to normalize/display as Election
-            election_candidates = [a for a in attrs if any(k in a.lower() for k in ["election","coverage","tier"])]
+            election_candidates = [a for a in attrs if any(k in a.lower() for k in ["election", "coverage", "tier"])]
             election_col = pick_election_column(election_candidates) if election_candidates else None
 
             wide = base[[key]].drop_duplicates().set_index(key)
-            plan_df = df_in[[key, plan_col]+attrs].copy()
+            plan_df = df_in[[key, plan_col] + attrs].copy()
             plan_df[plan_col] = plan_df[plan_col].astype(str)
 
             if election_col:
                 plan_df[election_col] = plan_df[election_col].astype(str).map(normalize_election)
 
             for pval in sorted(plan_df[plan_col].dropna().unique()):
-                pblock = plan_df[plan_df[plan_col]==pval].groupby(key).first()
+                pblock = plan_df[plan_df[plan_col] == pval].groupby(key).first()
                 rename_map = {}
                 for a in attrs:
                     if election_col and a == election_col:
@@ -542,23 +549,24 @@ async def export_file(
     tmp_raw = await template_file.read()
     carrier_headers = read_template_headers(template_file, tmp_raw)
 
-    emp_ssn_field = recipe.get("anchor",{}).get("field")
+    emp_ssn_field = recipe.get("anchor", {}).get("field")
     member_ssn_field = detect_second_ssn(df, emp_ssn_field) if emp_ssn_field else None
 
-    def apply_transform(df_in:pd.DataFrame, recipe:Dict[str,Any])->pd.DataFrame:
-        if recipe["anchor"]["type"]=="employee_ssn" and recipe["anchor"]["field"] in df_in.columns:
+    def apply_transform(df_in: pd.DataFrame, recipe: Dict[str, Any]) -> pd.DataFrame:
+        if recipe["anchor"]["type"] == "employee_ssn" and recipe["anchor"]["field"] in df_in.columns:
             key = recipe["anchor"]["field"]
         else:
-            parts = recipe["anchor"].get("fallback_composite") or ["FirstName","LastName","DOB"]
+            parts = recipe["anchor"].get("fallback_composite") or ["FirstName", "LastName", "DOB"]
             for p in parts:
-                if p not in df_in.columns: df_in[p] = ""
+                if p not in df_in.columns:
+                    df_in[p] = ""
             key = "_composite_key"
             df_in[key] = df_in[parts].astype(str).agg("|".join, axis=1)
 
         base = df_in.copy()
         relcol = recipe["relationship"].get("field")
-        if recipe["structure"]["dependents"]=="row_based" and relcol:
-            emp_values = {v.lower() for v in recipe["relationship"].get("employee_values",["employee","ee"])}
+        if recipe["structure"]["dependents"] == "row_based" and relcol:
+            emp_values = {v.lower() for v in recipe["relationship"].get("employee_values", ["employee", "ee"])}
             base["_is_employee"] = base[relcol].astype(str).str.lower().isin(emp_values)
             base = base[base["_is_employee"]].copy()
 
@@ -572,21 +580,21 @@ async def export_file(
 
         out = base.copy()
 
-        if recipe["structure"]["plans"]=="plan_per_row" and recipe["structure"].get("plan_type_field"):
+        if recipe["structure"]["plans"] == "plan_per_row" and recipe["structure"].get("plan_type_field"):
             plan_col = recipe["structure"]["plan_type_field"]
             attrs_raw = recipe["structure"].get("plan_attrs") or []
             attrs = [a for a in attrs_raw if a in df_in.columns]
-            election_candidates = [a for a in attrs if any(k in a.lower() for k in ["election","coverage","tier"])]
+            election_candidates = [a for a in attrs if any(k in a.lower() for k in ["election", "coverage", "tier"])]
             election_col = pick_election_column(election_candidates) if election_candidates else None
 
-            plan_df = df_in[[key, plan_col]+attrs].copy()
+            plan_df = df_in[[key, plan_col] + attrs].copy()
             plan_df[plan_col] = plan_df[plan_col].astype(str)
             if election_col:
                 plan_df[election_col] = plan_df[election_col].astype(str).map(normalize_election)
 
             wide = base[[key]].drop_duplicates().set_index(key)
             for pval in sorted(plan_df[plan_col].dropna().unique()):
-                pblock = plan_df[plan_df[plan_col]==pval].groupby(key).first()
+                pblock = plan_df[plan_df[plan_col] == pval].groupby(key).first()
                 rename_map = {}
                 for a in attrs:
                     if election_col and a == election_col:
@@ -617,12 +625,12 @@ async def export_file(
 
 # ---------------- FEEDBACK ----------------
 @app.post("/feedback")
-async def feedback(payload: Dict[str,Any]):
+async def feedback(payload: Dict[str, Any]):
     carrier_name = payload.get("carrier_name") or "unknown"
     headers = payload.get("carrier_headers") or []
     used_mapping = payload.get("used_mapping") or {}
     recipe = payload.get("recipe") or {}
     if not headers or not isinstance(used_mapping, dict):
-        return JSONResponse({"error":"missing carrier_headers or used_mapping"}, status_code=400)
+        return JSONResponse({"error": "missing carrier_headers or used_mapping"}, status_code=400)
     ks_record_success(carrier_name, headers, used_mapping, recipe)
-    return {"status":"learned", "mappings_stored": len(used_mapping)}
+    return {"status": "learned", "mappings_stored": len(used_mapping)}
