@@ -20,20 +20,21 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 @router.post("/session")
 def create_chatkit_session():
-    """
-    Create a ChatKit session for the published workflow and return the client_secret token.
-    The browser uses this token to open the embedded chat.
-    """
     try:
-        # NOTE: The sessions.create call name/shape comes from the current OpenAI SDK.
-        # If your SDK is older, upgrade `openai` per the requirements.txt step above.
+        print("Creating ChatKit session with workflow:", WORKFLOW_ID)
+
         session = client.chatkit.sessions.create({
             "workflow_id": WORKFLOW_ID,
-            # You can pass optional per-user identity/metadata here if you want.
-            # "user": {"id": "pat-gordon"},
-            # Enable file upload UI in the chat (good for your two-file flow)
-            "chatkit_configuration": {"file_upload": {"enabled": True}}
+            "chatkit_configuration": {
+                "file_upload": { "enabled": True }
+            }
         })
-        return {"client_secret": session.client_secret}
+
+        print("Session created:", session)
+        return { "client_secret": session.client_secret }
+
     except Exception as e:
+        print("ChatKit session error:", e)
         raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
+
+
