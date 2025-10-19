@@ -77,16 +77,19 @@ def create_chatkit_session():
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
     # Build payload with user as a **string** (not an object)
-        user_str = f"anon-{uuid.uuid4()}"
     payload = {
-        "user": user_str,   # must be a plain string
-        "workflow": {"id": workflow_id},
+        "workflow": {"id": workflow_id},           # already correct
+        "user": f"anon-{uuid.uuid4()}",            # string id
         "chatkit_configuration": {
             "file_upload": {
-                "enabled": True,
+                "enabled": True,                   # <- turns on paperclip
                 "accept": [".csv", ".xlsx", ".xls", ".txt"],
-                "multiple": True
-            }
+                "multiple": True,
+                "max_files": 6,                    # optional; adjust as you like
+                "max_file_size": 512               # MB; ChatKit max per doc
+            },
+            # (optional) keep chat history defaults, or configure here
+            # "history": {"enabled": True, "recent_threads": 10}
         }
     }
 
