@@ -21,7 +21,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 @router.post("/session")
 def create_chatkit_session():
     try:
-        print("Creating ChatKit session with workflow:", WORKFLOW_ID)
+        print("Trying to create ChatKit session with workflow:", WORKFLOW_ID)
 
         session = client.chatkit.sessions.create({
             "workflow_id": WORKFLOW_ID,
@@ -30,11 +30,12 @@ def create_chatkit_session():
             }
         })
 
-        print("Session created:", session)
+        print("ChatKit session created:", session)
         return { "client_secret": session.client_secret }
 
     except Exception as e:
-        print("ChatKit session error:", e)
+        import traceback
+        print("ERROR CREATING CHATKIT SESSION:")
+        traceback.print_exc()  # ← logs full traceback to Render
         raise HTTPException(status_code=500, detail=f"ChatKit session error: {e}")
-
 
