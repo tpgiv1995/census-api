@@ -72,7 +72,7 @@ def create_chatkit_session():
         raise HTTPException(status_code=500, detail="OPENAI_WORKFLOW_ID is not set.")
 
     payload = {
-        "workflow_id": workflow_id,
+        "workflow": {"id": workflow_id},            # <-- CHANGED
         "chatkit_configuration": {"file_upload": {"enabled": True}}
     }
 
